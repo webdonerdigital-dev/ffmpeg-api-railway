@@ -101,11 +101,11 @@ app.post('/video-overlay', (req, res) => {
         `[with_border][neon_animated]blend=all_mode=lighten`;
     }
 
-    const ffmpegCmd = `ffmpeg -i "${bgPath}" -i "${overlayPath}" -filter_complex "${filter}" -c:v libx264 -preset ultrafast -crf 28 -map 0:a? -c:a copy -t 15 -y "${outputPath}"`;
+    const ffmpegCmd = `ffmpeg -i "${bgPath}" -i "${overlayPath}" -filter_complex "${filter}" -c:v libx264 -preset veryfast -crf 30 -map 0:a? -c:a copy -t 10 -y "${outputPath}"`;
 
     console.log('FFmpeg command:', ffmpegCmd);
 
-    exec(ffmpegCmd, { timeout: 90000 }, (error, stdout, stderr) => {
+    exec(ffmpegCmd, { timeout: 300000 }, (error, stdout, stderr) => {
       // Cleanup
       try {
         if (fs.existsSync(bgPath)) fs.unlinkSync(bgPath);
