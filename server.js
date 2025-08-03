@@ -134,13 +134,12 @@ app.post('/video-overlay', (req, res) => {
         const borderWidth = req.body.borderWidth || 8;
         const glowIntensity = req.body.glowIntensity || 3;
         
-        // Create neon glow effect with multiple borders
-        ffmpegFilter += `;[text_added]pad=${targetFormat.width + borderWidth * 2}:${targetFormat.height + borderWidth * 2}:${borderWidth}:${borderWidth}:${borderColor}[bordered];` +
-          `[bordered]boxblur=${glowIntensity}:${glowIntensity}[glowed];` +
-          `[text_added][glowed]overlay=${borderWidth}:${borderWidth}[final_with_glow]`;
+        // Use fixed dimensions for reels format
+        const finalWidth = 1080;
+        const finalHeight = 1920;
         
-        // Override final filter name
-        ffmpegFilter = ffmpegFilter.replace('[text_added]', '[text_added]').replace('[final_with_glow]', '');
+        // Create neon glow effect with multiple borders
+        ffmpegFilter += `;[text_added]pad=${finalWidth + borderWidth * 2}:${finalHeight + borderWidth * 2}:${borderWidth}:${borderWidth}:color=${borderColor}[final]`;
       } else {
         ffmpegFilter = ffmpegFilter.replace('[text_added]', '');
       }
