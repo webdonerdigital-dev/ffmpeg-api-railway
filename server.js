@@ -82,9 +82,10 @@ app.post('/video-overlay', (req, res) => {
             default: overlayPos = 'W-w-20:20'; // top-right
           }
           
-          ffmpegFilter = `[0:v]scale=1080:1920[main_bg];` +
-            `[1:v]scale=${avatarSize}:${avatarSize}[avatar_small];` +
-            `[main_bg][avatar_small]overlay=${overlayPos}[combined]`;
+          // Ana video tam ekran + avatar küçük overlay
+          ffmpegFilter = `[0:v]scale=1080:1920[main_full];` +
+            `[1:v]scale=${avatarSize}:${avatarSize},format=rgba,colorchannelmixer=aa=0.8[avatar_transparent];` +
+            `[main_full][avatar_transparent]overlay=${overlayPos}[combined]`;
         }
         // Option 2: Split vertical (original)
         else {
