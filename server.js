@@ -139,8 +139,7 @@ app.post('/video-overlay', (req, res) => {
           `fontsize=${textSize}:` +
           `fontcolor=${textColor}:` +
           `x=(w-text_w)/2:` +
-          `y=(h-text_h)/2:` +
-          `shadow=1:shadowcolor=black:shadowx=2:shadowy=2[text_added]`;
+          `y=(h-text_h)/2[text_added]`;
       } else {
         ffmpegFilter += `;[video_combined]null[text_added]`;
       }
@@ -151,7 +150,7 @@ app.post('/video-overlay', (req, res) => {
           `${targetFormat.width + borderWidth * 2}:` +
           `${targetFormat.height + borderWidth * 2}:` +
           `${borderWidth}:${borderWidth}:` +
-          `${borderColor}`;
+          `color=${borderColor}`;
       }
 
       const ffmpegCmd = `ffmpeg -i "${bgPath}" -i "${overlayPath}" ` +
