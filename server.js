@@ -67,13 +67,35 @@ app.post('/video-overlay', (req, res) => {
       let ffmpegFilter = '';
       
       if (format === 'reels') {
-        // BG video: Keep original 9:16, crop to top half
-        // Avatar: Keep square, scale to fit bottom area
-        ffmpegFilter = `[0:v]scale=1080:1920,crop=1080:960:0:0[top_bg];` +
-          `[1:v]scale=480:480[avatar];` +
-          `color=black:size=1080x1920[bg];` +
-          `[bg][top_bg]overlay=0:0[temp1];` +
-          `[temp1][avatar]overlay=(1080-480)/2:960+(960-480)/2[combined]`;
+        // Option 1: Avatar overlay on main video (new request)
+        if (req.body.avatarOnTop) {
+          const avatarSize = req.body.avatarSize || 200;
+          const avatarPosition = req.body.avatarPosition || 'top-right';
+          
+          let overlayPos = '';
+          switch(avatarPosition) {
+            case 'top-left': overlayPos = '20:20'; break;
+            case 'top-right': overlayPos = 'W-w-20:20'; break;
+            case 'bottom-left': overlayPos = '20:H-h-20'; break;
+            case 'bottom-right': overlayPos = 'W-w-20:H-h-20'; break;
+            case 'center': overlayPos = '(W-w)/2:(H-h)/2'; break;
+            default: overlayPos = 'W-w-20:20'; // top-right
+          }
+          
+          ffmpegFilter = `[0:v]scale=1080:1920[main_bg];` +
+            `[1:v]scale=${avatarSize}:${avatarSize}[avatar_small];` +
+            `[main_bg][avatar_small]overlay=${overlayPos}[combined]`;
+        }
+        // Option 2: Split vertical (original)
+        else {
+          // BG video: Keep original 9:16, crop to top half
+          // Avatar: Keep square, scale to fit bottom area
+          ffmpegFilter = `[0:v]scale=1080:1920,crop=1080:960:0:0[top_bg];` +
+            `[1:v]scale=480:480[avatar];` +
+            `color=black:size=1080x1920[bg];` +
+            `[bg][top_bg]overlay=0:0[temp1];` +
+            `[temp1][avatar]overlay=(1080-480)/2:960+(960-480)/2[combined]`;
+        }
       } else {
         // Original logic for other formats
         ffmpegFilter = `[0:v]scale=1080:960[top];[1:v]scale=1080:960[bottom];` +
@@ -82,8 +104,8 @@ app.post('/video-overlay', (req, res) => {
           `[temp1][bottom]overlay=0:960[combined]`;
       }
 
-      // Add text if specified (temporarily disabled for font issue)
-      if (overlayText && overlayText.trim() !== '' && false) {
+      // Add text if specified
+      if (overlayText && overlayText.trim() !== '') {
         ffmpegFilter += `;[combined]drawtext=text='${overlayText}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=30:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2[final]`;
       } else {
         ffmpegFilter += `;[combined]copy[final]`;
