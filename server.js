@@ -28,15 +28,28 @@ app.get('/health', (req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-// Simple video overlay endpoint
+// Video overlay endpoint
 app.post('/video-overlay', (req, res) => {
   try {
     const { 
       backgroundUrl, 
       overlayUrl, 
+      animationUrl = '', // 3rd video for animations
       format = 'reels',
+      avatarOnTop = false,
+      avatarPosition = 'bottom-right',
+      avatarSize = 200,
       overlayText = '',
-      borderEnabled = false
+      textPosition = 'center',
+      textColor = 'white',
+      textSize = 40,
+      borderEnabled = false,
+      borderColor = '#00FF00',
+      borderWidth = 8,
+      // Animation settings
+      animationPosition = 'center',
+      animationSize = 300,
+      animationBlendMode = 'overlay' // overlay, screen, multiply
     } = req.body;
 
     if (!backgroundUrl || !overlayUrl) {
@@ -47,12 +60,16 @@ app.post('/video-overlay', (req, res) => {
 
     const bgPath = `uploads/bg-${Date.now()}.mp4`;
     const overlayPath = `uploads/overlay-${Date.now()}.mp4`;
+    const animationPath = `uploads/animation-${Date.now()}.mp4`;
     const outputPath = `uploads/output-${Date.now()}.mp4`;
 
     console.log('Starting video processing...');
 
-    // Download videos
-    const downloadCmd = `wget -O "${bgPath}" "${backgroundUrl}" && wget -O "${overlayPath}" "${overlayUrl}"`;
+    // Download videos (including animation if provided)
+    let downloadCmd = `wget -O "${bgPath}" "${backgroundUrl}" && wget -O "${overlayPath}" "${overlayUrl}"`;
+    if (animationUrl && animationUrl.trim() !== '') {
+      downloadCmd += ` && wget -O "${animationPath}" "${animationUrl}"`;
+    }
     
     exec(downloadCmd, (downloadError) => {
       if (downloadError) {
@@ -63,102 +80,85 @@ app.post('/video-overlay', (req, res) => {
         });
       }
 
-      // Smart Reels format: preserve aspect ratios
       let ffmpegFilter = '';
-      
-      if (format === 'reels') {
-        // Option 1: Avatar overlay on main video (new request)
-        if (req.body.avatarOnTop) {
-          const avatarSize = req.body.avatarSize || 200;
-          const avatarPosition = req.body.avatarPosition || 'top-right';
-          
-          let overlayPos = '';
-          switch(avatarPosition) {
-            case 'top-left': overlayPos = '20:20'; break;
-            case 'top-right': overlayPos = 'W-w-20:20'; break;
-            case 'bottom-left': overlayPos = '20:H-h-20'; break;
-            case 'bottom-right': overlayPos = 'W-w-20:H-h-20'; break;
-            case 'center': overlayPos = '(W-w)/2:(H-h)/2'; break;
-            default: overlayPos = 'W-w-20:20'; // top-right
-          }
-          
-          // Ana video tam ekran + avatar küçük overlay
-          ffmpegFilter = `[0:v]scale=1080:1920[main_full];` +
-            `[1:v]scale=${avatarSize}:${avatarSize},format=rgba,colorchannelmixer=aa=0.8[avatar_transparent];` +
-            `[main_full][avatar_transparent]overlay=${overlayPos}[combined]`;
+
+      // Build filter based on layout type
+      if (avatarOnTop) {
+        // Avatar overlay on full background
+        let overlayPos = '';
+        switch(avatarPosition) {
+          case 'top-left': overlayPos = '20:20'; break;
+          case 'top-right': overlayPos = 'W-w-20:20'; break;
+          case 'bottom-left': overlayPos = '20:H-h-20'; break;
+          case 'bottom-right': overlayPos = 'W-w-20:H-h-20'; break;
+          case 'center': overlayPos = '(W-w)/2:(H-h)/2'; break;
+          default: overlayPos = 'W-w-20:20';
         }
-        // Option 2: Split vertical (original)
-        else {
-          // BG video: Keep original 9:16, crop to top half
-          // Avatar: Keep square, scale to fit bottom area
-          ffmpegFilter = `[0:v]scale=1080:1920,crop=1080:960:0:0[top_bg];` +
-            `[1:v]scale=480:480[avatar];` +
-            `color=black:size=1080x1920[bg];` +
-            `[bg][top_bg]overlay=0:0[temp1];` +
-            `[temp1][avatar]overlay=(1080-480)/2:960+(960-480)/2[combined]`;
-        }
+        
+        ffmpegFilter = `[0:v]scale=1080:1920[main_full];[1:v]scale=${avatarSize}:${avatarSize}[avatar_small];[main_full][avatar_small]overlay=${overlayPos}[video_with_avatar]`;
       } else {
-        // Original logic for other formats
-        ffmpegFilter = `[0:v]scale=1080:960[top];[1:v]scale=1080:960[bottom];` +
-          `color=black:size=1080x1920[bg];` +
-          `[bg][top]overlay=0:0[temp1];` +
-          `[temp1][bottom]overlay=0:960[combined]`;
+        // Split vertical layout
+        ffmpegFilter = `[0:v]scale=1080:1920,crop=1080:960:0:0[top_bg];[1:v]scale=480:480[avatar];color=black:size=1080x1920[bg];[bg][top_bg]overlay=0:0[temp1];[temp1][avatar]overlay=(1080-480)/2:960+(960-480)/2[video_with_avatar]`;
       }
 
-      // Add text if specified
-      if (overlayText && overlayText.trim() !== '') {
-        const textPosition = req.body.textPosition || 'center';
-        const textColor = req.body.textColor || 'white';
-        const textSize = req.body.textSize || 40;
+      // Add animation overlay if provided
+      if (animationUrl && animationUrl.trim() !== '') {
+        let animPos = '';
+        switch(animationPosition) {
+          case 'top-left': animPos = '50:50'; break;
+          case 'top-right': animPos = 'W-w-50:50'; break;
+          case 'bottom-left': animPos = '50:H-h-50'; break;
+          case 'bottom-right': animPos = 'W-w-50:H-h-50'; break;
+          case 'center': animPos = '(W-w)/2:(H-h)/2'; break;
+          case 'top-center': animPos = '(W-w)/2:100'; break;
+          case 'bottom-center': animPos = '(W-w)/2:H-h-100'; break;
+          default: animPos = '(W-w)/2:(H-h)/2';
+        }
         
+        // Animation with transparency support (simplified)
+        ffmpegFilter += `;[2:v]scale=${animationSize}:${animationSize}[animation_scaled];[video_with_avatar][animation_scaled]overlay=${animPos}[video_final]`;
+      } else {
+        ffmpegFilter += `;[video_with_avatar]null[video_final]`;
+      }
+
+      // Add text if specified (simplified)
+      if (overlayText && overlayText.trim() !== '') {
         let textPos = '';
         switch(textPosition) {
-          case 'top': textPos = 'x=(w-text_w)/2:y=50'; break;
-          case 'bottom': textPos = 'x=(w-text_w)/2:y=h-text_h-50'; break;
+          case 'top': textPos = 'x=(w-text_w)/2:y=80'; break;
+          case 'bottom': textPos = 'x=(w-text_w)/2:y=h-text_h-80'; break;
           case 'center': textPos = 'x=(w-text_w)/2:y=(h-text_h)/2'; break;
-          case 'top-left': textPos = 'x=30:y=50'; break;
-          case 'top-right': textPos = 'x=w-text_w-30:y=50'; break;
-          case 'bottom-left': textPos = 'x=30:y=h-text_h-50'; break;
-          case 'bottom-right': textPos = 'x=w-text_w-30:y=h-text_h-50'; break;
           default: textPos = 'x=(w-text_w)/2:y=(h-text_h)/2';
         }
         
-        ffmpegFilter += `;[combined]drawtext=text='${overlayText}':fontsize=${textSize}:fontcolor=${textColor}:${textPos}:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf[text_added]`;
+        ffmpegFilter += `;[video_final]drawtext=text='${overlayText}':fontsize=${textSize}:fontcolor=${textColor}:${textPos}[with_text]`;
       } else {
-        ffmpegFilter += `;[combined]copy[text_added]`;
+        ffmpegFilter += `;[video_final]null[with_text]`;
       }
 
-      // Add neon border if enabled
+      // Add border if enabled (simplified)
       if (borderEnabled) {
-        const borderColor = req.body.borderColor || '#00FF00'; // Neon green default
-        const borderWidth = req.body.borderWidth || 8;
-        const glowIntensity = req.body.glowIntensity || 3;
-        
-        // Use fixed dimensions for reels format
-        const finalWidth = 1080;
-        const finalHeight = 1920;
-        
-        // Create neon glow effect with multiple borders
-        ffmpegFilter += `;[text_added]pad=${finalWidth + borderWidth * 2}:${finalHeight + borderWidth * 2}:${borderWidth}:${borderWidth}:color=${borderColor}[final]`;
-      } else {
-        ffmpegFilter = ffmpegFilter.replace('[text_added]', '');
+        ffmpegFilter += `;[with_text]pad=1100:1940:10:10:color=${borderColor}`;
       }
 
-      const ffmpegCmd = `ffmpeg -i "${bgPath}" -i "${overlayPath}" ` +
+      const ffmpegInputs = animationUrl && animationUrl.trim() !== '' 
+        ? `ffmpeg -i "${bgPath}" -i "${overlayPath}" -i "${animationPath}"`
+        : `ffmpeg -i "${bgPath}" -i "${overlayPath}"`;
+
+      const ffmpegCmd = `${ffmpegInputs} ` +
         `-filter_complex "${ffmpegFilter}" ` +
-        `-map "[final]" ` +
-        `-map 0:a? ` +
         `-c:v libx264 -preset ultrafast -crf 28 ` +
-        `-c:a copy ` +
-        `-t 10 -y "${outputPath}"`;
+        `-map 0:a? -c:a copy ` +
+        `-t 15 -y "${outputPath}"`;
 
       console.log('FFmpeg command:', ffmpegCmd);
 
-      exec(ffmpegCmd, { timeout: 120000 }, (error, stdout, stderr) => {
+      exec(ffmpegCmd, { timeout: 180000 }, (error, stdout, stderr) => {
         // Clean up
         try {
           if (fs.existsSync(bgPath)) fs.unlinkSync(bgPath);
           if (fs.existsSync(overlayPath)) fs.unlinkSync(overlayPath);
+          if (animationUrl && fs.existsSync(animationPath)) fs.unlinkSync(animationPath);
         } catch (cleanupError) {
           console.error('Cleanup error:', cleanupError);
         }
@@ -168,8 +168,7 @@ app.post('/video-overlay', (req, res) => {
           console.error('FFmpeg stderr:', stderr);
           return res.status(500).json({ 
             error: 'Video processing failed',
-            details: stderr,
-            command: ffmpegCmd
+            details: stderr
           });
         }
 
@@ -185,7 +184,14 @@ app.post('/video-overlay', (req, res) => {
           success: true,
           message: 'Video processed successfully',
           outputUrl: outputUrl,
-          format: '1080x1920 Reels',
+          settings: {
+            avatarOnTop,
+            avatarPosition,
+            avatarSize,
+            overlayText,
+            textPosition,
+            borderEnabled
+          },
           processTime: new Date().toISOString()
         });
       });
@@ -202,6 +208,5 @@ app.post('/video-overlay', (req, res) => {
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`FFmpeg API Server running on port ${port}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log('Server started successfully!');
+  console.log('Ready to process videos!');
 });
