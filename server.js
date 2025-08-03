@@ -82,8 +82,8 @@ app.post('/video-overlay', (req, res) => {
           `[temp1][bottom]overlay=0:960[combined]`;
       }
 
-      // Add text if specified
-      if (overlayText && overlayText.trim() !== '') {
+      // Add text if specified (temporarily disabled for font issue)
+      if (overlayText && overlayText.trim() !== '' && false) {
         ffmpegFilter += `;[combined]drawtext=text='${overlayText}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=30:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2[final]`;
       } else {
         ffmpegFilter += `;[combined]copy[final]`;
@@ -92,7 +92,9 @@ app.post('/video-overlay', (req, res) => {
       const ffmpegCmd = `ffmpeg -i "${bgPath}" -i "${overlayPath}" ` +
         `-filter_complex "${ffmpegFilter}" ` +
         `-map "[final]" ` +
+        `-map 0:a? ` +
         `-c:v libx264 -preset ultrafast -crf 28 ` +
+        `-c:a copy ` +
         `-t 10 -y "${outputPath}"`;
 
       console.log('FFmpeg command:', ffmpegCmd);
