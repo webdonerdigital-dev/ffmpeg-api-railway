@@ -2,7 +2,7 @@ app.post('/video-overlay', (req, res) => {
   const { 
     backgroundUrl, 
     overlayUrl, 
-    frameUrl, // Yeni parametre: Frame/3. video URL'i
+    frameUrl,
     format = 'reels',
     avatarOnTop = true,
     avatarPosition = 'bottom-right',
@@ -21,7 +21,7 @@ app.post('/video-overlay', (req, res) => {
   const framePath = frameUrl ? `uploads/frame-${Date.now()}.${frameUrl.includes('.png') ? 'png' : 'mp4'}` : null;
   const outputPath = `uploads/output-${Date.now()}.mp4`;
 
-  // İndirme komutunu güncelle (frame dahil)
+  // İndirme komutunu güncelle
   let downloadCmd = `wget -O "${bgPath}" "${backgroundUrl}" && wget -O "${overlayPath}" "${overlayUrl}"`;
   if (frameUrl) {
     downloadCmd += ` && wget -O "${framePath}" "${frameUrl}"`;
@@ -32,7 +32,6 @@ app.post('/video-overlay', (req, res) => {
       return res.status(500).json({ error: 'Download failed' });
     }
 
-    // Format ayarları
     const formats = {
       'reels': { width: 1080, height: 1920 },
       'landscape': { width: 1920, height: 1080 },
@@ -40,7 +39,6 @@ app.post('/video-overlay', (req, res) => {
     };
     const targetFormat = formats[format] || formats['reels'];
 
-    // Avatar pozisyonu
     let overlayPos = '';
     switch(avatarPosition) {
       case 'top-left': overlayPos = '20:20'; break;
@@ -51,34 +49,47 @@ app.post('/video-overlay', (req, res) => {
       default: overlayPos = 'W-w-20:20';
     }
 
-    // Filtreleri oluştur (3 overlay desteği)
     let filter = '';
-    let inputCount = 2; // Başlangıçta 2 giriş (bg + avatar)
+    let inputCount = 2;
     
     if (avatarOnTop) {
       filter = `[0:v]scale=${targetFormat.width}:${targetFormat.height}[bg];`;
       filter += `[1:v]scale=${avatarSize}:${avatarSize}[avatar];`;
       filter += `[bg][avatar]overlay=${overlayPos}[combined]`;
       
-      // Frame ekleme
+      // Animasyonlu PNG desteği
       if (frameUrl) {
-        filter += `;${frameUrl.includes('.png') ? '' : `[2:v]scale=${targetFormat.width}:${targetFormat.height},`}[2:v]format=rgba[frame]`;
-        filter += `;[combined][frame]overlay=0:0[video_final]`;
+        // APNG için özel işleme
+        if (frameUrl.toLowerCase().endsWith('.png')) {
+          filter += `;[2:v]format=rgba,scale=${targetFormat.width}:${targetFormat.height}[frame]`;
+          filter += `;[combined][frame]overlay=0:0:shortest=1[video_final]`;
+        } 
+        // Video frame için
+        else {
+          filter += `;[2:v]scale=${targetFormat.width}:${targetFormat.height}[frame]`;
+          filter += `;[combined][frame]overlay=0:0:shortest=1[video_final]`;
+        }
         inputCount = 3;
       } else {
         filter += `;[combined]null[video_final]`;
       }
     } else {
-      // ... (diğer senaryolar)
+      // Diğer senaryolar...
     }
 
-    // FFmpeg komutunu güncelle (frame desteği)
-    const inputs = `-i "${bgPath}" -i "${overlayPath}" ${frameUrl ? `-i "${framePath}"` : ''}`;
-    const ffmpegCmd = `ffmpeg ${inputs} -filter_complex "${filter}" -c:v libx264 -preset veryfast -crf 30 -map 0:a? -c:a copy -t 10 -y "${outputPath}"`;
+    // APNG için özel parametreler
+    const apngOptions = frameUrl && frameUrl.toLowerCase().endsWith('.png') 
+      ? `-ignore_loop 0` // Sonsuz döngü
+      : '';
+
+    const inputs = `-i "${bgPath}" -i "${overlayPath}" ${frameUrl ? `${apngOptions} -i "${framePath}"` : ''}`;
+    
+    const ffmpegCmd = `ffmpeg ${inputs} -filter_complex "${filter}" ` +
+      `-c:v libx264 -preset veryfast -crf 30 -map 0:a? -c:a copy -t 10 -y "${outputPath}"`;
 
     console.log('FFmpeg command:', ffmpegCmd);
 
-    exec(ffmpegCmd, { timeout: 300000 }, (error, stdout, stderr) => {
+    exec(ffmpegCmd, { timeout: 600000 }, (error, stdout, stderr) => {
       // Temizlik
       [bgPath, overlayPath, framePath].forEach(path => {
         if (path && fs.existsSync(path)) fs.unlinkSync(path);
@@ -93,7 +104,15 @@ app.post('/video-overlay', (req, res) => {
       res.json({ 
         success: true, 
         outputUrl, 
-        settings: { format, avatarOnTop, avatarPosition, avatarSize, neonBorder, frameUsed: !!frameUrl }
+        settings: { 
+          format, 
+          avatarOnTop, 
+          avatarPosition, 
+          avatarSize, 
+          neonBorder, 
+          frameUsed: !!frameUrl,
+          frameType: frameUrl ? (frameUrl.toLowerCase().endsWith('.png') ? 'APNG' : 'Video') : 'None'
+        }
       });
     });
   });
