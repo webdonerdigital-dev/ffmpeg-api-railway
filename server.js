@@ -80,11 +80,25 @@ app.post('/video-overlay', (req, res) => {
       filter = `[0:v]scale=${targetFormat.width}:${halfHeight}[top];[1:v]scale=${targetFormat.width}:${halfHeight}[bottom];color=black:size=${targetFormat.width}x${targetFormat.height}[bg];[bg][top]overlay=0:0[temp];[temp][bottom]overlay=0:${halfHeight}[video_final]`;
     }
 
-    // Add simple neon border if enabled
+    // Add neon border with animation if enabled
     if (neonBorder) {
       const totalWidth = targetFormat.width + (neonWidth * 2);
       const totalHeight = targetFormat.height + (neonWidth * 2);
-      filter += `;[video_final]pad=${totalWidth}:${totalHeight}:${neonWidth}:${neonWidth}:color=${neonColor}`;
+      
+      // Static neon border
+      filter += `;[video_final]pad=${totalWidth}:${totalHeight}:${neonWidth}:${neonWidth}:color=${neonColor}[with_border]`;
+      
+      // Add flowing animation effect using geq
+      filter += `;color=${neonColor}:size=${totalWidth}x${totalHeight}[neon_bg];` +
+        `[neon_bg]geq=` +
+        `r='if(lt(X,${neonWidth})+gt(X,${totalWidth-neonWidth})+lt(Y,${neonWidth})+gt(Y,${totalHeight-neonWidth}),` +
+        `180+75*sin(2*PI*(T*2+X*0.02+Y*0.02)),40)':` +
+        `g='if(lt(X,${neonWidth})+gt(X,${totalWidth-neonWidth})+lt(Y,${neonWidth})+gt(Y,${totalHeight-neonWidth}),` +
+        `255,100)':` +
+        `b='if(lt(X,${neonWidth})+gt(X,${totalWidth-neonWidth})+lt(Y,${neonWidth})+gt(Y,${totalHeight-neonWidth}),` +
+        `200+55*sin(2*PI*(T*2+X*0.02+Y*0.02)+PI/3),180)'` +
+        `[neon_animated];` +
+        `[with_border][neon_animated]blend=all_mode=lighten`;
     }
 
     const ffmpegCmd = `ffmpeg -i "${bgPath}" -i "${overlayPath}" -filter_complex "${filter}" -c:v libx264 -preset ultrafast -crf 28 -map 0:a? -c:a copy -t 15 -y "${outputPath}"`;
