@@ -107,9 +107,42 @@ app.post('/video-overlay', (req, res) => {
 
       // Add text if specified
       if (overlayText && overlayText.trim() !== '') {
-        ffmpegFilter += `;[combined]drawtext=text='${overlayText}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=30:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2[final]`;
+        const textPosition = req.body.textPosition || 'center';
+        const textColor = req.body.textColor || 'white';
+        const textSize = req.body.textSize || 40;
+        
+        let textPos = '';
+        switch(textPosition) {
+          case 'top': textPos = 'x=(w-text_w)/2:y=50'; break;
+          case 'bottom': textPos = 'x=(w-text_w)/2:y=h-text_h-50'; break;
+          case 'center': textPos = 'x=(w-text_w)/2:y=(h-text_h)/2'; break;
+          case 'top-left': textPos = 'x=30:y=50'; break;
+          case 'top-right': textPos = 'x=w-text_w-30:y=50'; break;
+          case 'bottom-left': textPos = 'x=30:y=h-text_h-50'; break;
+          case 'bottom-right': textPos = 'x=w-text_w-30:y=h-text_h-50'; break;
+          default: textPos = 'x=(w-text_w)/2:y=(h-text_h)/2';
+        }
+        
+        ffmpegFilter += `;[combined]drawtext=text='${overlayText}':fontsize=${textSize}:fontcolor=${textColor}:${textPos}:fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf[text_added]`;
       } else {
-        ffmpegFilter += `;[combined]copy[final]`;
+        ffmpegFilter += `;[combined]copy[text_added]`;
+      }
+
+      // Add neon border if enabled
+      if (borderEnabled) {
+        const borderColor = req.body.borderColor || '#00FF00'; // Neon green default
+        const borderWidth = req.body.borderWidth || 8;
+        const glowIntensity = req.body.glowIntensity || 3;
+        
+        // Create neon glow effect with multiple borders
+        ffmpegFilter += `;[text_added]pad=${targetFormat.width + borderWidth * 2}:${targetFormat.height + borderWidth * 2}:${borderWidth}:${borderWidth}:${borderColor}[bordered];` +
+          `[bordered]boxblur=${glowIntensity}:${glowIntensity}[glowed];` +
+          `[text_added][glowed]overlay=${borderWidth}:${borderWidth}[final_with_glow]`;
+        
+        // Override final filter name
+        ffmpegFilter = ffmpegFilter.replace('[text_added]', '[text_added]').replace('[final_with_glow]', '');
+      } else {
+        ffmpegFilter = ffmpegFilter.replace('[text_added]', '');
       }
 
       const ffmpegCmd = `ffmpeg -i "${bgPath}" -i "${overlayPath}" ` +
