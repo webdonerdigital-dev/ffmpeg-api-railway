@@ -63,16 +63,28 @@ app.post('/video-overlay', (req, res) => {
         });
       }
 
-      // Simple Reels format: 1080x1920, split vertical
-      let ffmpegFilter = `[0:v]scale=1080:960[top];[1:v]scale=1080:960[bottom];` +
-        `color=black:size=1080x1920[bg];` +
-        `[bg][top]overlay=0:0[temp1];` +
-        `[temp1][bottom]overlay=0:960[combined]`;
+      // Smart Reels format: preserve aspect ratios
+      let ffmpegFilter = '';
+      
+      if (format === 'reels') {
+        // BG video: Keep original 9:16, crop to top half
+        // Avatar: Keep square, scale to fit bottom area
+        ffmpegFilter = `[0:v]scale=1080:1920,crop=1080:960:0:0[top_bg];` +
+          `[1:v]scale=480:480[avatar];` +
+          `color=black:size=1080x1920[bg];` +
+          `[bg][top_bg]overlay=0:0[temp1];` +
+          `[temp1][avatar]overlay=(1080-480)/2:960+(960-480)/2[combined]`;
+      } else {
+        // Original logic for other formats
+        ffmpegFilter = `[0:v]scale=1080:960[top];[1:v]scale=1080:960[bottom];` +
+          `color=black:size=1080x1920[bg];` +
+          `[bg][top]overlay=0:0[temp1];` +
+          `[temp1][bottom]overlay=0:960[combined]`;
+      }
 
-      // Skip text for now (font issue)
       // Add text if specified
-      if (overlayText && overlayText.trim() !== '' && false) { // Temporarily disabled
-        ffmpegFilter += `;[combined]drawtext=text='${overlayText}':fontsize=30:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2[final]`;
+      if (overlayText && overlayText.trim() !== '') {
+        ffmpegFilter += `;[combined]drawtext=text='${overlayText}':fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:fontsize=30:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2[final]`;
       } else {
         ffmpegFilter += `;[combined]copy[final]`;
       }
