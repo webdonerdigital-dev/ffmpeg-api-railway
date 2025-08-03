@@ -69,11 +69,12 @@ app.post('/video-overlay', (req, res) => {
         `[bg][top]overlay=0:0[temp1];` +
         `[temp1][bottom]overlay=0:960[combined]`;
 
+      // Skip text for now (font issue)
       // Add text if specified
-      if (overlayText && overlayText.trim() !== '') {
+      if (overlayText && overlayText.trim() !== '' && false) { // Temporarily disabled
         ffmpegFilter += `;[combined]drawtext=text='${overlayText}':fontsize=30:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2[final]`;
       } else {
-        ffmpegFilter += `;[combined]null[final]`;
+        ffmpegFilter += `;[combined]copy[final]`;
       }
 
       const ffmpegCmd = `ffmpeg -i "${bgPath}" -i "${overlayPath}" ` +
