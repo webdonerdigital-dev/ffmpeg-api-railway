@@ -6,30 +6,27 @@ const cors = require('cors');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Minimal setup - debug için
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
-// Create uploads directory
 if (!fs.existsSync('uploads')) {
   fs.mkdirSync('uploads');
 }
 
 app.get('/', (req, res) => {
-  res.json({ status: 'OK', message: 'Minimal server working' });
+  res.json({ status: 'OK', message: 'Server working' });
 });
 
 app.get('/health', (req, res) => {
   res.json({ status: 'healthy', memory: process.memoryUsage() });
 });
 
-// Enhanced video overlay with options
 app.post('/video-overlay', (req, res) => {
   const { 
     backgroundUrl, 
     overlayUrl, 
-    frameUrl, // YENI: 3. overlay/frame
+    frameUrl,
     format = 'reels',
     avatarOnTop = true,
     avatarPosition = 'bottom-right',
@@ -48,11 +45,8 @@ app.post('/video-overlay', (req, res) => {
   const framePath = frameUrl ? `uploads/frame-${Date.now()}.${frameUrl.includes('.png') ? 'png' : 'mp4'}` : null;
   const outputPath = `uploads/output-${Date.now()}.mp4`;
 
-  // İndirme komutunu güncelle (frame dahil)
   let downloadCmd = `wget -O "${bgPath}" "${backgroundUrl}" && wget -O "${overlayPath}" "${overlayUrl}"`;
-  if (frameUrl) {
-    downloadCmd += ` && wget -O "${framePath}" "${frameUrl}"`;
-  }
+  if (frameUrl) downloadCmd += ` && wget -O "${framePath}" "${frameUrl}"`;
   
   exec(downloadCmd, (downloadError) => {
     if (downloadError) {
@@ -78,76 +72,76 @@ app.post('/video-overlay', (req, res) => {
       default: overlayPos = 'W-w-20:20';
     }
 
-    // Filtreleri oluştur (3 overlay desteği)
+    // Filtre zincirini oluştur
     let filter = '';
-    let currentOutput = 'combined';
+    let currentOutput = 'bg_scaled';
     
-    if (avatarOnTop) {
-      // Temel filtreler
-      filter = `[0:v]scale=${targetFormat.width}:${targetFormat.height}[bg];`;
-      filter += `[1:v]scale=${avatarSize}:${avatarSize}[avatar];`;
-      filter += `[bg][avatar]overlay=${overlayPos}[${currentOutput}]`;
-    } else {
-      // Alternatif layout
-      const halfHeight = targetFormat.height / 2;
-      filter = `[0:v]scale=${targetFormat.width}:${halfHeight}[top];`;
-      filter += `[1:v]scale=${targetFormat.width}:${halfHeight}[bottom];`;
-      filter += `color=black:size=${targetFormat.width}x${targetFormat.height}[bg];`;
-      filter += `[bg][top]overlay=0:0[temp];`;
-      filter += `[temp][bottom]overlay=0:${halfHeight}[${currentOutput}]`;
-    }
-
-    // Neon efekti
+    // 1. Background scaling
+    filter += `[0:v]scale=${targetFormat.width}:${targetFormat.height}[${currentOutput}];`;
+    
+    // 2. Avatar scaling ve overlay
+    filter += `[1:v]scale=${avatarSize}:${avatarSize}[avatar];`;
+    filter += `[${currentOutput}][avatar]overlay=${overlayPos}[${currentOutput}_avatar];`;
+    currentOutput += '_avatar';
+    
+    // 3. Neon border (isteğe bağlı)
     if (neonBorder) {
       const totalWidth = targetFormat.width + (neonWidth * 2);
       const totalHeight = targetFormat.height + (neonWidth * 2);
       
-      filter += `;[${currentOutput}]pad=${totalWidth}:${totalHeight}:${neonWidth}:${neonWidth}:color=${neonColor}[with_border]`;
-      
-      filter += `;color=${neonColor}:size=${totalWidth}x${totalHeight}[neon_bg];`;
+      filter += `[${currentOutput}]pad=${totalWidth}:${totalHeight}:${neonWidth}:${neonWidth}:color=${neonColor}[${currentOutput}_padded];`;
+      filter += `color=${neonColor}:size=${totalWidth}x${totalHeight}[neon_bg];`;
       filter += `[neon_bg]geq=`;
       filter += `r='if(lt(X,${neonWidth})+gt(X,${totalWidth-neonWidth})+lt(Y,${neonWidth})+gt(Y,${totalHeight-neonWidth}),`;
-      filter += `180+75*sin(2*PI*(T*2+X*0.02+Y*0.02)),40)'`;
-      filter += `:g='if(lt(X,${neonWidth})+gt(X,${totalWidth-neonWidth})+lt(Y,${neonWidth})+gt(Y,${totalHeight-neonWidth}),`;
-      filter += `255,100)'`;
-      filter += `:b='if(lt(X,${neonWidth})+gt(X,${totalWidth-neonWidth})+lt(Y,${neonWidth})+gt(Y,${totalHeight-neonWidth}),`;
+      filter += `180+75*sin(2*PI*(T*2+X*0.02+Y*0.02)),40)':`;
+      filter += `g='if(lt(X,${neonWidth})+gt(X,${totalWidth-neonWidth})+lt(Y,${neonWidth})+gt(Y,${totalHeight-neonWidth}),`;
+      filter += `255,100)':`;
+      filter += `b='if(lt(X,${neonWidth})+gt(X,${totalWidth-neonWidth})+lt(Y,${neonWidth})+gt(Y,${totalHeight-neonWidth}),`;
       filter += `200+55*sin(2*PI*(T*2+X*0.02+Y*0.02)+PI/3),180)'`;
       filter += `[neon_animated];`;
-      filter += `[with_border][neon_animated]blend=all_mode=lighten[${currentOutput}_neon]`;
-      
-      currentOutput = `${currentOutput}_neon`;
+      filter += `[${currentOutput}_padded][neon_animated]blend=all_mode=lighten[${currentOutput}_neon];`;
+      currentOutput += '_neon';
     }
-
-    // Frame ekleme (3. overlay)
+    
+    // 4. Frame overlay (isteğe bağlı)
     if (frameUrl) {
-      // APNG için format ve boyut ayarı
       const isPNG = frameUrl.toLowerCase().includes('.png');
-      filter += `;[2:v]${isPNG ? 'format=rgba,' : ''}scale=${targetFormat.width}:${targetFormat.height}[frame]`;
-      filter += `;[${currentOutput}][frame]overlay=0:0:shortest=1[video_final]`;
+      filter += `[${currentOutput}]${isPNG ? '' : 'setpts=PTS-STARTPTS,'}[final_bg];`;
+      filter += `[2:v]${isPNG ? 'format=rgba,' : ''}scale=${targetFormat.width}:${targetFormat.height}[frame];`;
+      filter += `[final_bg][frame]overlay=0:0:shortest=1[video_final]`;
     } else {
-      filter += `;[${currentOutput}]null[video_final]`;
+      filter += `[${currentOutput}]null[video_final]`;
     }
 
     // APNG için özel parametreler
     const apngOptions = frameUrl && frameUrl.toLowerCase().includes('.png') 
-      ? `-ignore_loop 0` // Sonsuz döngü
+      ? `-ignore_loop 0` 
       : '';
 
     const inputs = `-i "${bgPath}" -i "${overlayPath}" ${frameUrl ? `${apngOptions} -i "${framePath}"` : ''}`;
+    
+    // Ses işleme - ilk videodan sesi al
+    const audioMap = `-map 0:a? -c:a copy`;
+    
     const ffmpegCmd = `ffmpeg ${inputs} -filter_complex "${filter}" ` +
-      `-c:v libx264 -preset ultrafast -crf 28 -map 0:a? -c:a copy -t 30 -threads 0 -y "${outputPath}"`;
+      `-map "[video_final]" ${audioMap} ` +
+      `-c:v libx264 -preset ultrafast -crf 28 -t 30 -threads 0 -y "${outputPath}"`;
 
     console.log('FFmpeg command:', ffmpegCmd);
 
     exec(ffmpegCmd, { timeout: 600000 }, (error, stdout, stderr) => {
-      // Temizlik
+      // Cleanup
       [bgPath, overlayPath, framePath].forEach(path => {
         if (path && fs.existsSync(path)) fs.unlinkSync(path);
       });
 
       if (error) {
         console.error('FFmpeg error:', stderr);
-        return res.status(500).json({ error: 'Processing failed', details: stderr });
+        return res.status(500).json({ 
+          error: 'Processing failed', 
+          details: stderr,
+          command: ffmpegCmd // Hata ayıklama için komutu da döndür
+        });
       }
 
       const outputUrl = `${req.protocol}://${req.get('host')}/${outputPath}`;
@@ -160,8 +154,7 @@ app.post('/video-overlay', (req, res) => {
           avatarPosition, 
           avatarSize, 
           neonBorder,
-          frameUsed: !!frameUrl,
-          frameType: frameUrl ? (frameUrl.toLowerCase().includes('.png') ? 'APNG' : 'Video') : 'None'
+          frameUsed: !!frameUrl
         }
       });
     });
@@ -170,5 +163,4 @@ app.post('/video-overlay', (req, res) => {
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
-  console.log('Memory usage:', process.memoryUsage());
 });
